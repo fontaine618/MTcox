@@ -1,0 +1,9 @@
+Package: MTcox
+Title: Multi-task sparse Cox model
+Version: 0.0.0.9000
+Authors@R: person("Simon", "Fontaine", email = "fontaines@dms.umontreal.ca", role = c("aut", "cre"))
+Description: Multi-task sparse Cox model.
+Depends: R (>= 3.3.2)
+License: What license is it under?
+Encoding: UTF-8
+LazyData: true
