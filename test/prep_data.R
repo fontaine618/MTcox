@@ -1,7 +1,7 @@
 source("utils.R")
 #parameters
-p <- 20
-K <- 3
+p <- 10
+K <- 5
 n <- 1000
 #raw data
 X = matrix(rnorm(n*p,0,1),n,p)

@@ -609,6 +609,55 @@ END SUBROUTINE grad_hessj
 
 
 ! -------------------------------------------------------------------------------------------------
+SUBROUTINE hhat_compute(ntasks,n,ns,iski,isko,nski,nsko,w,eta,hhat)
+! -------------------------------------------------------------------------------------------------
+! This function produces the dradient and hessian matrix (diagonal)
+
+! - INPUT
+INTEGER                     :: ntasks,n
+INTEGER                     :: ns(ntasks)
+INTEGER                     :: iski(sum(ns))
+INTEGER                     :: isko(sum(ns))
+INTEGER                     :: nski(ntasks)
+INTEGER                     :: nsko(ntasks)
+DOUBLE PRECISION            :: w(n)
+DOUBLE PRECISION            :: eta(n)
+! - LOCAL
+INTEGER                     :: i,k
+INTEGER                     :: isk
+INTEGER                     :: length                 ! for allocation
+INTEGER, ALLOCATABLE        :: ind(:)                 ! will contain indices
+DOUBLE PRECISION            :: mu(n)
+DOUBLE PRECISION            :: SE
+DOUBLE PRECISION            :: hhat(sum(ns))
+!--------------------------------------------------------------------------------------------------
+! - INITIALIZATION
+!--------------------------------------------------------------------------------------------------
+mu = exp(eta)
+!--------------------------------------------------------------------------------------------------
+! - ALGORITHM
+!--------------------------------------------------------------------------------------------------
+DO k=1,ntasks
+    SE = 0.0D0
+    DO isk=nsko(k),nski(k),-1
+        ! - VECTOR OF INDICES
+        length = isko(isk) - iski(isk) + 1
+        ALLOCATE(ind(length))
+        ind = (/ (i,i=iski(isk),isko(isk),1) /)
+        ! - UPDATE SE
+            SE = SE + sum( w(ind)* mu(ind) )
+        ! - COMPUTE HHAT
+            hhat(isk) = 1.0D0/SE
+        ! - DEALLOCATE
+        DEALLOCATE(ind)
+    ENDDO
+ENDDO
+! -------------------------------------------------------------------------------------------------
+END SUBROUTINE hhat_compute
+! -------------------------------------------------------------------------------------------------
+
+
+! -------------------------------------------------------------------------------------------------
 SUBROUTINE prox(lam, pf, sig, alpha, reg, ntasks, beta, grad)
 ! -------------------------------------------------------------------------------------------------
 ! This function produces the proximal operator

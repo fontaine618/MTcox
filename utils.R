@@ -6,3 +6,4 @@ predict.MTcox <- function(x, taskids, beta, log=F){
    if(!log) out <- exp(out)
    out
 }
+

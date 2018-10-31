@@ -3,14 +3,15 @@
 !
 ! Performs the Multi-task sparse Cox model solution path algorithm
 ! Author : Simon FONTAINE
-! Last update : 2018-10-19
+! Last update : 2018-10-27
 ! -------------------------------------------------------------------------------------------------
 
 ! -------------------------------------------------------------------------------------------------
 SUBROUTINE mtcox_solutionpath(ntasks,ii,io,p,ns,delta,w,x,d,iski,isko, &
                                 nski,nsko,n,iex,str,dfmax,pmax,nlam,earlystop,alg,lamfrac, &
                                 lam,maxit,eps,frac,alpha,reg,pf,hhat,llk_path,dev,pdev_path, &
-                                eta_path,null_dev,ierr,beta,ncycles,nupdates,llk_null,llk_sat,grad,alf)
+                                eta_path,null_dev,ierr,beta,betanorm,kkt,kkt0,&
+                                ncycles,nupdates,nbeta,entered,llk_null,llk_sat,grad,alf)
 ! -------------------------------------------------------------------------------------------------
 IMPLICIT NONE
 ! -------------------------------------------------------------------------------------------------
@@ -54,7 +55,7 @@ DOUBLE PRECISION    :: pf(p)                    !penalty factor by variable
 ! -------------------------------------------------------------------------------------------------
 INTEGER             :: nalam                    !actual number of lambda iterations performed
 DOUBLE PRECISION    :: beta(p, ntasks, nlam)    !estimates along solution path
-DOUBLE PRECISION    :: betanorm(ntasks, nlam)   !norm estimates along solution path before destandardization
+DOUBLE PRECISION    :: betanorm(p, nlam)   !norm estimates along solution path before destandardization
 DOUBLE PRECISION    :: kkt(p, nlam)             !kkt condition for non zero variable along solution path
 DOUBLE PRECISION    :: kkt0(p, nlam)            !kkt condition for excluded variable along solution path
 DOUBLE PRECISION    :: llk_null(ntasks)         !null log-likelihood
@@ -68,8 +69,9 @@ DOUBLE PRECISION    :: null_dev                 !null deviance
 INTEGER             :: ncycles                  !number of cycles performed per lambda
 INTEGER             :: nupdates                 !number of updates performed per lambda
 INTEGER             :: nbeta(nlam)              !number of variables in model
+INTEGER             :: entered(p)
 INTEGER             :: nbetaever                !number of variables ever to enter the model
-INTEGER             :: idvars(pmax)             !sequence in which the variables enter the model
+INTEGER             :: idvars(p)                !sequence in which the variables enter the model
 INTEGER             :: ierr(5)                  !error informations
                                                 !   1: either fatal errors(1) or warnings(0)
                                                 !   2: error code
@@ -163,6 +165,10 @@ DOUBLE PRECISION    :: hhata(sum(ns))           !estimate of the nonparametric b
     nupdates = 0
     ncycles = 0
     al = big
+    nbeta = 0
+    nbetaever = 0
+    kkt = 0.0D0
+    kkt0 = 0.0D0
 ! - STANDARDIZATION
     call standardize(ntasks, ii, io, p, w, x, n, iex, wsum, xmean, xsd, flnullsd)
     IF(flnullsd(1)>0) THEN
@@ -230,7 +236,7 @@ DOUBLE PRECISION    :: hhata(sum(ns))           !estimate of the nonparametric b
             DO j=1,p
                 IF (isr(j) == 0) CYCLE
                 ! - COMPUTE GRADIENT
-                call grad_hessj(ntasks,n,ns,iski,isko,nski,nsko,w,x,delta,d,eta,g,h)
+                call grad_hessj(ntasks,n,ns,iski,isko,nski,nsko,w,x(:,j),delta,d,eta,g,h)
                 ! - COMPUTE CONDITION AND UPDATE SET
                 SELECT CASE (reg)
                     CASE (0)
@@ -265,7 +271,7 @@ DOUBLE PRECISION    :: hhata(sum(ns))           !estimate of the nonparametric b
                 IF(isr(j) == 1)CYCLE
                 IF(iex(j) == 0)CYCLE
                 ! - COMPUTE GRADIENT
-                call grad_hessj(ntasks,n,ns,iski,isko,nski,nsko,w,x,delta,d,eta,g,h)
+                call grad_hessj(ntasks,n,ns,iski,isko,nski,nsko,w,x(:,j),delta,d,eta,g,h)
                 ! - COMPUTE CONDITION AND UPDATE SET
                 SELECT CASE (reg)
                     CASE (0)
@@ -288,31 +294,62 @@ DOUBLE PRECISION    :: hhata(sum(ns))           !estimate of the nonparametric b
     ! FINAL CHECKS
     ! ---------------------------------------------------------------------------------------------
 
-    ! - KKT CONDITIONS (Strong rules already checks the null cases)
-
-    ! - NUMBER OF VARIABLES
-
-    ! - EARLY STOP CONDITONS
-
+    ! - NUMBER OF VARIABLES, NORM AND ENTRY
+        ! initialize counter
+        DO j=1,p
+            IF(iex(j) == 0) CYCLE
+            ! compute norm
+            SELECT CASE (reg)
+                CASE (0)
+                    betanorm(j,l) = maxval(abs(b(j,:)))
+                CASE (2)
+                    betanorm(j,l) = sqrt(sum(b(j,:)**2))
+            END SELECT
+            ! check if positive
+            IF(betanorm(j,l) > small) THEN
+                nbeta(l) = nbeta(l) + 1
+                IF(entered (j) == 0 )THEN
+                    entered(j) = l
+                    nbetaever = nbetaever + 1
+                ENDIF
+            ENDIF
+        ENDDO
+    ! - KKT CONDITIONS
+        DO j=1,p
+            IF(iex(j) == 0) CYCLE
+            ! compute gradient
+            call grad_hessj(ntasks,n,ns,iski,isko,nski,nsko,w,x(:,j),delta,d,eta,g,h)
+            ! gradient norm
+            SELECT CASE (reg)
+                CASE (0)
+                    tmp = maxval(abs(g))
+                CASE (2)
+                    tmp = sqrt(sum(g**2))
+            END SELECT
+            ! condition value and check
+            IF(betanorm(j,l) > small) THEN
+                !non-zero case
+                kkt(j,l) = tmp
+            ELSE
+                !zero case
+                kkt0(j,l) = tmp
+            ENDIF
+        ENDDO
     ! - END FIRST LAMBDA CONDITION
         ENDIF
-    ! - SAVE FINAL ESTIMATES AND OTHER OUTPUT (ETA, LLK, DEV, PDEV, HHAT, BETANORM, LAMBDA)
+    ! - SAVE FINAL ESTIMATES AND OTHER OUTPUT (ETA, LLK, DEV, PDEV, LAMBDA, hhat)
         eta_path(:,l) = eta
         beta(:,:,l) = b
         llk_path(:,l) = llk
         dev(l) = 2.0D0 * sum(llk_sat - llk)
         pdev_path(l) = (dev(l)-null_dev)/null_dev
-        DO k=1,ntasks
-            SELECT CASE (reg)
-                CASE (0)
-                    betanorm(k,l) = maxval(abs(b(:,k)))/pf(j)
-                CASE (2)
-                    betanorm(k,l) = sqrt(sum(b(:,k)**2))/pf(j)
-            END SELECT
-        ENDDO
         lam(l) = al
+        call hhat_compute(ntasks,n,ns,iski,isko,nski,nsko,w,eta,hhat(:,l))
+        ! store lambda for next iteration
         al0 = al
     ! - EARLY STOP
+        ! CHECK KKT CONDITIONS
+        ! CHECK PERCENT DEVIANCE EXPLAINED
         IF(flearlystop == 1) RETURN
 ! -------------------------------------------------------------------------------------------------
 ! END LAMBDA LOOP
