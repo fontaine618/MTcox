@@ -220,7 +220,7 @@ DOUBLE PRECISION        :: llk(ntasks)
                     SI = SI + w(i) * eta(i)
                 ENDIF
             ENDDO
-            llk(k) = llk(k) + SI - d(isk) * SE
+            llk(k) = llk(k) + SI - d(isk) * log(SE)
         ENDDO
     ENDDO
 ! -------------------------------------------------------------------------------------------------

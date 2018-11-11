@@ -3,13 +3,12 @@
 !
 ! Performs the Multi-task sparse Cox model solution path algorithm
 ! Author : Simon FONTAINE
-! Last update : 2018-10-27
+! Last update : 2018-11-11
 ! -------------------------------------------------------------------------------------------------
 
 ! -------------------------------------------------------------------------------------------------
-SUBROUTINE mtcox_solutionpath(ntasks,ii,io,p,ns,delta,w,x,d,iski,isko, &
-                                nski,nsko,n,iex,str,dfmax,pmax,nlam,earlystop,alg,lamfrac, &
-                                lam,maxit,eps,frac,alpha,reg,pf,hhat,llk_path,dev,pdev_path, &
+SUBROUTINE mtcox_solutionpath(ntasks,ii,io,p,ns,delta,w,x,d,iski,isko,nski,nsko,n,&
+                                optInt,optDbl,iex,pf,nlam,lam,hhat,llk_path,dev,pdev_path, &
                                 eta_path,null_dev,ierr,beta,betanorm,kkt,kkt0,&
                                 ncycles,nupdates,nbeta,entered,llk_null,llk_sat,grad,alf)
 ! -------------------------------------------------------------------------------------------------
@@ -29,27 +28,37 @@ INTEGER             :: nski(ntasks)	            !identifies indeces for isk star
 INTEGER             :: nsko(ntasks)	            !identifies indeces for isk last
 INTEGER             :: n                        !number of observations
 ! - INPUTS
-!DOUBLE PRECISION    :: y(n)		                !vector of observed time
 INTEGER             :: delta(n)				    !vector indicator of failure(0) or censored(1)
 DOUBLE PRECISION    :: w(n)		                !vector of weights
 DOUBLE PRECISION    :: x(n,p)		            !matrix of variables (n rows, p columns)
 ! - ALGORITHM DETAILS
+
+INTEGER             :: nlam         		    !number of lambda iterations
+DOUBLE PRECISION    :: lam(nlam)                !actual lambda values (or user supplied values)
+
 INTEGER             :: iex(p)			        !indicator to exclude variable from algorithm (0=exclude)
-INTEGER             :: str					    !indicator to perform strong rule or not
-INTEGER             :: dfmax				    !maximum number of variables in the model (all non-zero at one time)
-INTEGER             :: pmax					    !maximum number of variables to entre the model (includes those back to zero)
-INTEGER             :: nlam					    !number of lambda iterations
-INTEGER             :: earlystop			    !whether or not to stop early if condition is met
-INTEGER             :: alg                      !=0 : IRLS, =1 : majorized, =2 : backtracking
-DOUBLE PRECISION    :: lamfrac		            !fraction of lambda_max to compute lambda_min (if =1, then user supplied)
-DOUBLE PRECISION    :: lam(nlam)                !actual lambda values (or usersupplied values)
-INTEGER             :: maxit				    !maximum number of GPG cycles
-DOUBLE PRECISION    :: eps			            !convergence threshold
-DOUBLE PRECISION    :: frac			            !fraction for backtracing
-! - REGULARIZATION
-DOUBLE PRECISION    :: alpha		            !parameter for sparse model
-INTEGER             :: reg					    !regularization 0 (q=infty) or 2 (q=2)
 DOUBLE PRECISION    :: pf(p)                    !penalty factor by variable
+
+INTEGER             :: optInt(7)                !contains the diffrents options which are integer
+
+INTEGER             :: str          			!indicator to perform strong rule or not
+INTEGER             :: maxit        		    !maximum number of updates
+INTEGER             :: earlystop        	    !whether or not to stop early if condition is met
+INTEGER             :: alg                      !=0 : IRLS, =1 : majorized, =2 : backtracking
+INTEGER             :: dfmax        		    !maximum number of variables in the model (all non-zero at one time)
+INTEGER             :: pmax         		    !maximum number of variables to entre the model (includes those back to zero)
+INTEGER             :: reg          			!regularization 0 (q=infty) or 2 (q=2)
+
+
+DOUBLE PRECISION    :: optDbl(4)                !contains the diffrents options which are doubles
+
+DOUBLE PRECISION    :: eps                      !convergence threshold
+DOUBLE PRECISION    :: frac            	        !fraction for backtracing
+DOUBLE PRECISION    :: alpha                    !parameter for sparse model
+DOUBLE PRECISION    :: lamfrac                  !fraction of lambda_max to compute lambda_min (if =1, then user supplied)
+
+
+
 ! -------------------------------------------------------------------------------------------------
 ! OUTPUT DESCRIPTION
 ! -------------------------------------------------------------------------------------------------
@@ -131,7 +140,18 @@ DOUBLE PRECISION    :: h(ntasks)                !hessian matrix
 DOUBLE PRECISION    :: tmp                      !temporary storing
 DOUBLE PRECISION    :: hhata(sum(ns))           !estimate of the nonparametric baselinetemporary
 
+str=optInt(1)
+maxit=optInt(2)
+earlystop=optInt(3)
+alg=optInt(4)
+dfmax=optInt(5)
+pmax=optInt(6)
+reg=optInt(7)
 
+eps=optDbl(1)
+frac=optDbl(2)
+alpha=optDbl(3)
+lamfrac=optDbl(4)
 ! -------------------------------------------------------------------------------------------------
 ! INITIALIZATION
 ! -------------------------------------------------------------------------------------------------
@@ -342,7 +362,7 @@ DOUBLE PRECISION    :: hhata(sum(ns))           !estimate of the nonparametric b
         beta(:,:,l) = b
         llk_path(:,l) = llk
         dev(l) = 2.0D0 * sum(llk_sat - llk)
-        pdev_path(l) = (dev(l)-null_dev)/null_dev
+        pdev_path(l) = -(dev(l)-null_dev)/null_dev
         lam(l) = al
         call hhat_compute(ntasks,n,ns,iski,isko,nski,nsko,w,eta,hhat(:,l))
         ! store lambda for next iteration

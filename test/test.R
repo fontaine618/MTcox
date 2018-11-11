@@ -416,8 +416,50 @@ out$dev
 round(out$pdev_path*100,1)
 array(out$beta, c(p, ntasks, nlam))
 
-##### SOLUTION PATH WORKS
-##### STRONG RULE WORKS
-##### NEXT : FINAL STUFF IN FORTRAN
+###############################################################
+# test for MTcox.R
 
+########################
+# non-simultaneous tests
+#parameters
+p <- 5
+K <- 3
+n <- 100
+#raw data
+X = round(matrix(rnorm(n*p,0,1),n,p),2)
+beta <- c(1,-2,3,rep(0,p-3))
+#eventually do weibull distribution or something else
+y <- round(rexp(n,exp(X %*% beta)),1)
+data <- data.frame(
+   y = y,
+   d = rbinom(n,1,0.3),
+   task = sample.int(K,n, replace=TRUE),
+   X = X
+)
+yid <- 1
+did <- 2
+taskid <- 3
 
+fit <- MTcox(data, yid, taskid, did)
+
+#status: need to test arguments
+########################
+# simultaneous tests
+
+#parameters
+p <- 3
+K <- 5
+n <- 100/K
+#raw data
+X = round(matrix(rnorm(n*p,0,1),n,p),2)
+beta <- c(1,-2,3,rep(0,p-3))
+#eventually do weibull distribution or something else
+y <- matrix(round(rexp(n*K,exp(X %*% beta)),1),n,K)
+data <- data.frame(
+   y = y,
+   d = rbinom(n,1,0.3),
+   X = X
+)
+yid <- 1:K
+did <- K+1
+taskid <- K+2
