@@ -3,14 +3,14 @@
 !
 ! Performs the Multi-task sparse Cox model solution path algorithm
 ! Author : Simon FONTAINE
-! Last update : 2018-11-11
+! Last update : 2019-03-30
 ! -------------------------------------------------------------------------------------------------
 
 ! -------------------------------------------------------------------------------------------------
 SUBROUTINE mtcox_solutionpath(ntasks,ii,io,p,ns,delta,w,x,d,iski,isko,nski,nsko,n,&
                                 optInt,optDbl,iex,pf,nlam,lam,hhat,llk_path,dev,pdev_path, &
                                 eta_path,null_dev,ierr,beta,betanorm,kkt,kkt0,&
-                                ncycles,nupdates,nbeta,entered,llk_null,llk_sat,grad,alf)
+                                ncycles,nupdates,nbeta,entered,llk_null,llk_sat,grad)
 ! -------------------------------------------------------------------------------------------------
 IMPLICIT NONE
 ! -------------------------------------------------------------------------------------------------
@@ -21,12 +21,13 @@ INTEGER             :: ntasks					!number of tasks
 INTEGER             :: ii(ntasks)				!id of first observation per task
 INTEGER             :: io(ntasks)				!id of last observation by task
 INTEGER             :: p					    !number of variables
+INTEGER             :: n                        !number of observations
 INTEGER             :: ns(ntasks)				!number of different failure time (=S^k)
+DOUBLE PRECISION    :: d(sum(ns))	            !value of d_s^k
 INTEGER             :: iski(sum(ns))	        !address of group first observation
 INTEGER             :: isko(sum(ns))	        !address of group last observation
 INTEGER             :: nski(ntasks)	            !identifies indeces for isk start
 INTEGER             :: nsko(ntasks)	            !identifies indeces for isk last
-INTEGER             :: n                        !number of observations
 ! - INPUTS
 INTEGER             :: delta(n)				    !vector indicator of failure(0) or censored(1)
 DOUBLE PRECISION    :: w(n)		                !vector of weights
@@ -39,7 +40,7 @@ DOUBLE PRECISION    :: lam(nlam)                !actual lambda values (or user s
 INTEGER             :: iex(p)			        !indicator to exclude variable from algorithm (0=exclude)
 DOUBLE PRECISION    :: pf(p)                    !penalty factor by variable
 
-INTEGER             :: optInt(7)                !contains the diffrents options which are integer
+INTEGER             :: optInt(7)                !contains the diffrents options which are integer. In order, they are :
 
 INTEGER             :: str          			!indicator to perform strong rule or not
 INTEGER             :: maxit        		    !maximum number of updates
@@ -50,7 +51,7 @@ INTEGER             :: pmax         		    !maximum number of variables to entre 
 INTEGER             :: reg          			!regularization 0 (q=infty) or 2 (q=2)
 
 
-DOUBLE PRECISION    :: optDbl(4)                !contains the diffrents options which are doubles
+DOUBLE PRECISION    :: optDbl(4)                !contains the diffrents options which are doubles . In order, they are :
 
 DOUBLE PRECISION    :: eps                      !convergence threshold
 DOUBLE PRECISION    :: frac            	        !fraction for backtracing
@@ -64,7 +65,7 @@ DOUBLE PRECISION    :: lamfrac                  !fraction of lambda_max to compu
 ! -------------------------------------------------------------------------------------------------
 INTEGER             :: nalam                    !actual number of lambda iterations performed
 DOUBLE PRECISION    :: beta(p, ntasks, nlam)    !estimates along solution path
-DOUBLE PRECISION    :: betanorm(p, nlam)   !norm estimates along solution path before destandardization
+DOUBLE PRECISION    :: betanorm(p, nlam)        !norm estimates along solution path before destandardization
 DOUBLE PRECISION    :: kkt(p, nlam)             !kkt condition for non zero variable along solution path
 DOUBLE PRECISION    :: kkt0(p, nlam)            !kkt condition for excluded variable along solution path
 DOUBLE PRECISION    :: llk_null(ntasks)         !null log-likelihood
@@ -93,7 +94,7 @@ INTEGER             :: ierr(5)                  !error informations
                                                 !         6: maximum number of cycles reached in gpg_descent
                                                 !         7: lambda max too small
                                                 !         8: alf too big
-                                                !         9:
+                                                !         9: tmp NaN
                                                 !         10:
                                                 !
                                                 !       1 0: no warnings
@@ -115,9 +116,7 @@ INTEGER             :: isk   				    !to remember the position of first observat
 INTEGER             :: j					    !to cycle through variables
 INTEGER             :: k					    !to cycle through tasks
 INTEGER             :: l					    !to cycle through lambda
-
 ! - TEMPORARY STORING
-DOUBLE PRECISION    :: d(sum(ns))	            !value of d_s^k
 DOUBLE PRECISION    :: eta(n)                   !current linear predictor
 DOUBLE PRECISION    :: b(p, ntasks)             !current estimate
 DOUBLE PRECISION    :: llk(ntasks)              !current log likelihood
@@ -176,7 +175,9 @@ lamfrac=optDbl(4)
     tmp = 0.0D0
     b = 0.0D0
     hhata = 0.0D0
+    hhat = 0.0D0
     eta = 0.0D0
+    llk = 0.0D0
     llk_null = 0.0D0
     llk_sat = 0.0D0
     al0 = big
@@ -184,8 +185,15 @@ lamfrac=optDbl(4)
     flnullsd = 0
     nupdates = 0
     ncycles = 0
+    wsum = 0.0D0
+    xmean = 0.0D0
+    xsd = 0.0D0
     al = big
     nbeta = 0
+    beta = 0.0D0
+    eta_path = 0.0D0
+    eta = 0.0D0
+    betanorm = 0.0D0
     nbetaever = 0
     kkt = 0.0D0
     kkt0 = 0.0D0
@@ -195,7 +203,6 @@ lamfrac=optDbl(4)
         ierr = (/1,1,0,flnullsd(1), flnullsd(2)/)
         RETURN
     ENDIF
-
 ! ---------------------------------------------------------------------------------------------
 ! NULL MODEL
 ! ---------------------------------------------------------------------------------------------
@@ -210,6 +217,7 @@ lamfrac=optDbl(4)
 ! ---------------------------------------------------------------------------------------------
     IF(lamfrac<1.0D0) THEN
     ! - COMPUTATION OF GRADIENT WITH BETA=0
+        eta= 0.0D0
         DO j=1,p
             IF(iex(j)==0)CYCLE
             call grad_hessj(ntasks,n,ns,iski,isko,nski,nsko,w,x(:,j),&
@@ -218,7 +226,7 @@ lamfrac=optDbl(4)
     ! - COMPUTATION OF LAMBDA MAX
         al = 0.0D0
         call lambda_max(p, ntasks, reg, grad, pf, al, iex)
-        IF(al < small)THEN
+        IF(al < small .OR. al > big)THEN
             ierr = (/1,7,1,0,0/)
             RETURN
         ENDIF
@@ -307,9 +315,14 @@ lamfrac=optDbl(4)
         ENDIF
         IF(fl == 0) EXIT
     ! ---------------------------------------------------------------------------------------------
-    ! END SRTONG RULE LOOP
+    ! END STRONG RULE LOOP
     ! ---------------------------------------------------------------------------------------------
         ENDDO
+
+    ! - END FIRST LAMBDA CONDITION
+        ENDIF
+    ! - IF FIRST LAMBA WITH LOG SCALE,
+    ! - Nothing to do : beta is 0, eta is 0, llk is llk_null
     ! ---------------------------------------------------------------------------------------------
     ! FINAL CHECKS
     ! ---------------------------------------------------------------------------------------------
@@ -346,6 +359,11 @@ lamfrac=optDbl(4)
                 CASE (2)
                     tmp = sqrt(sum(g**2))
             END SELECT
+            ! check not NaN
+            IF(isnan(tmp)) THEN
+                ierr = (/1,9,l,j,0/)
+                RETURN
+            ENDIF
             ! condition value and check
             IF(betanorm(j,l) > small) THEN
                 !non-zero case
@@ -355,8 +373,6 @@ lamfrac=optDbl(4)
                 kkt0(j,l) = tmp
             ENDIF
         ENDDO
-    ! - END FIRST LAMBDA CONDITION
-        ENDIF
     ! - SAVE FINAL ESTIMATES AND OTHER OUTPUT (ETA, LLK, DEV, PDEV, LAMBDA, hhat)
         eta_path(:,l) = eta
         beta(:,:,l) = b

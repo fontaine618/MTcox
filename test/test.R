@@ -422,27 +422,94 @@ array(out$beta, c(p, ntasks, nlam))
 ########################
 # non-simultaneous tests
 #parameters
+library(MTcox)
+library(glmnet)
+library(survival)
+
+# set.seed(1)
+# p <- 5
+# K <- 1
+# n <- 500
+# #raw data
+# #X <- matrix(pmax(0, round(rnorm(n*p,0,1),2)),n,p)
+# X <- matrix(rbinom(n = n*p, size = 1, prob=0.5),n,p)
+# beta <- c(2,3,-1,rep(0,p-3))
+# #eventually do weibull distribution or something else
+# y <- round(rexp(n,exp(X %*% beta)),3)+0.001
+# data <- data.frame(
+#    y = y,
+#    d = rbinom(n,1,0.0),
+#    w=rep(1,n)/n,
+#    task = paste("t",seq(K),sep="")[sample.int(K,n, replace=TRUE)],
+#    X = X
+# )
+
+
+detach("package:MTcox", unload=TRUE)
+
+set.seed(2)
+
 p <- 5
-K <- 3
+K <- 1
 n <- 100
-#raw data
-X = round(matrix(rnorm(n*p,0,1),n,p),2)
-beta <- c(1,-2,3,rep(0,p-3))
-#eventually do weibull distribution or something else
-y <- round(rexp(n,exp(X %*% beta)),1)
-data <- data.frame(
-   y = y,
-   d = rbinom(n,1,0.3),
-   task = sample.int(K,n, replace=TRUE),
-   X = X
-)
+#X <- matrix(rbinom(n = n*p, size = 1, prob=0.5),n,p)
+
+X <- round(matrix(rnorm(n*p),n,p))
+beta <- c(2,3,-1,rep(0,p-3))
+data <- MTcox::dataCox(lambda = 5, rho = 1.5, X, beta = beta, censRate = 1e-4)
+
 yid <- 1
 did <- 2
-taskid <- 3
+wid <- 3
+taskid <- 4
+n.lam=10
 
-fit <- MTcox(data, yid, taskid, did)
+#D <- prepare.dataset(data,yid=yid,taskid=taskid,did=did,wid=wid)
+#prepare.dataset(data,yid=yid,taskid=taskid,did=did,wid=wid)$data
 
-#status: need to test arguments
+y <- cbind(time=data$y,status=1-data$d)
+# transform the data to survival format
+Y <- survival::Surv(time=data$y, event= 1-data$d, type="right")
+out <- sapply(seq(10), function(x) {
+
+   lam = 0.626 * (0.001)^((seq(0,10))/10)
+   # lam=fit$lam
+
+   fit <- MTcox::MTcox(data, yid=yid, taskid=taskid, did=did, wid=wid, n.lambda=n.lam,
+                       lambda=lam,
+                eps = 1e-4, reg = 2, alg = 1)
+   fit2 <- glmnet::glmnet(X,y,family="cox", lambda = fit$lam, weights = data$w,
+                          thresh = 1e-14,standardize=T)
+
+
+   matplot(y=t(matrix(fit$beta,p,length(fit$lam))), type = "l", lty =1, ylim = c(-1.5,3.5))
+   abline(h=0)
+   matplot(y=t(as.matrix(coef(fit2))), add = T, type = "l", lty =2)
+   abline(h=coef(survival::coxph(Y~X, ties="breslow")), col = seq(p), lty=3)
+
+   rbind(mtcox = fit$dev,
+         glmnet = deviance(fit2),
+         error = (deviance(fit2)- fit$dev)/deviance(fit2))
+   c(max(abs(matrix(fit$beta,p,length(fit$lam))-coef(fit2))),
+     fit$lam[1])
+})
+table(out[2,])
+table(out[1,])
+par(mfrow=c(2,1), mar=c(0,0,0,0))
+plot(log(out[1,]), type='l')
+plot(log(out[2,]), type='l')
+
+
+plot(x= log(out[2,]), y= log(out[1,]))
+
+
+# LOG
+# K=1, no ties: everything works perfectly sometimes,
+# but other times we get a weird result
+# With ties, never correct and we see the same pattern of variable results
+# llk null is correct, grad also
+
+
 ########################
 # simultaneous tests
 
